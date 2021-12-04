@@ -5,6 +5,7 @@ This project is done fully in R. Its goal is to fit a model to most accurately p
 
 ### About the data:
 The data is from a Kaggle dataset.
+
 The variables are:
 - Age: age of the patient [years]
 - Sex: sex of the patient [M: Male, F: Female]
