@@ -1,4 +1,4 @@
-# Heart-Attack-Risk-Prediction
+# Heart-Disease-Risk-Classification
 
 ### Quick overview:
 This project is done fully in R. Its goal is to fit a model to most accurately classify patients as having a **high or low risk of heart disease** based on variables like **cholesterol levels**, **sex**, **age**, **resting blood pressure**, etc.
