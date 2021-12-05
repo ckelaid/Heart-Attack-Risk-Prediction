@@ -1,7 +1,7 @@
-# Heart-Disease-Risk-Classification
+# Heart-Disease-Prediction
 
 ### Quick overview:
-This project is done fully in R. Its goal is to fit a model to most accurately classify patients as having a **high or low risk of heart disease** based on variables like **cholesterol levels**, **sex**, **age**, **resting blood pressure**, etc.
+This project is done fully in R. Its goal is to fit a model to most accurately predict whether a patient will have or is at risk of having a **cardiovascular disease** based on variables like **cholesterol levels**, **sex**, **age**, **resting blood pressure**, etc.
 
 ### About the data:
 The data is from a [Kaggle dataset](https://www.kaggle.com/fedesoriano/heart-failure-prediction?select=heart.csv).
