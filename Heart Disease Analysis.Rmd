@@ -1,0 +1,372 @@
+---
+title: "Heart Attack Prediction & Analysis"
+author: "Carlos Kelaidis"
+date: "4/7/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Link to data: https://www.kaggle.com/fedesoriano/heart-failure-prediction?select=heart.csv
+
+Read in data set:
+```{r}
+heart_data <- read.csv("~/Documents/My Working Directory/Personal Projects/Heart Attack Prediciton & Analysis/heart.csv")
+#View(heart_data)
+```
+
+Load libraries:
+```{r}
+library(tidyverse)
+library(knitr)
+```
+
+## The main goal is to create a model to predict the heart attack probability (output), based on the variables given.
+
+  * Classification
+    + Some more **linear approaches** to begin:
+      + **Logistic Regression** (We have two classes; high risk (1) or low risk (0))
+      + QDA (less linear than Logistic Regression); to compare to logistic regression, see if a linear or more non-lonear method is preferred. If more linear is preferred we can also try KNN. (Use ROC curve)
+      + KNN
+    + Try **more flexible, less linear** methods:
+      + GAMs (fit either using splines, or polynomial logistic regression)
+      + **SVM**
+      + **Classification Tree**
+
+### We begin by analysing the data to observe possible correlations:
+```{r}
+#Observe the structure of our data
+str(heart_data)
+#cor(heart_data)
+pairs(heart_data)
+```
+
+##### Let's look at our data:
+```{r}
+heart_data%>%
+  #select(sex, output, oldpeak, chol, age)%>%
+  mutate(sex2=as.factor(sex))%>%
+  ggplot(aes(x=sex2))+
+  geom_bar(aes(fill=sex2))+
+  labs(fill="Sex; 1 = female, 0 = male", x="Sex of Patient")+
+  ggtitle("Distribution of Sex")+
+  theme(plot.title = element_text(hjust = .5)) #Center title
+
+heart_data%>%
+  #select(sex, output, oldpeak, chol, age)%>%
+  mutate(sex2=as.factor(sex))%>%
+  mutate(output2=as.factor(output))%>%
+  ggplot(aes(x=output2))+
+  geom_bar(aes(fill=output2))+
+  labs(fill="Heart Attack Risk; 1 = high, 0 = low", x="Heart Attack Risk of Patient")+
+  ggtitle("Distribution of Heart Attack Risk")+
+  theme(plot.title = element_text(hjust = .5))
+
+heart_data%>%
+  select(sex, output, oldpeak, chol, age)%>%
+  mutate(sex2=as.factor(sex))%>%
+  mutate(output2=as.factor(output))%>%
+  ggplot(aes(x=sex2, y=oldpeak))+
+  geom_point(aes(col=output2))
+```
+
+
+Some graphs comparing males and females:
+```{r}
+par(mfrow=c(2,2))
+plot(heart_data$sex, heart_data$age,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Age of Patient")
+plot(heart_data$sex, heart_data$cp,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Chest Pain Type", ylim=c(0,4))
+plot(heart_data$sex, heart_data$trtbps,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Resting Blood Pressure")
+plot(heart_data$sex, heart_data$chol,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Cholesterol")
+par(mfrow=c(2,2))
+plot(heart_data$sex, heart_data$fbs,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Fasting Blood Sugar")
+plot(heart_data$sex, heart_data$exng,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Exercise indused angine")
+plot(heart_data$sex, heart_data$caa,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Number of major vessels")
+plot(heart_data$sex, heart_data$restecg,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Electrographic Results")
+par(mfrow=c(1,2))
+plot(heart_data$sex, heart_data$oldpeak,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Old Peak")
+plot(heart_data$sex, heart_data$slp,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="Slp")
+
+plot(heart_data$sex, heart_data$thalachh,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="thalachh")
+plot(heart_data$sex, heart_data$thall,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Sex; 0 is male, 1 is female", ylab="thall")
+```
+
+  Red dots show **high risk** and green dots **low risk** of heart attack.
+  
+  Overall, we see that in most cases women are categorized at lower risk of heart attach, even with matching cholesterol levels or resting blood pressure levels as males. So **Sex** is an important factor.
+  
+  Furthermore, we see that in males the high risk patients are concentrated in the ages above 65. We will look at age against risk in more detail below.
+  
+  Looking at **Chest Pain Type**, we see that in males, non-anginal chest pain is strictly related to high risk of heart attack, while we see patients in the low & high risks experiencing atypical or typical angina.
+  
+  Looking at the second set of plots, it appears to be no distinction between high risk and low risk patients. 
+  
+
+Now some more plots to see how some variables behave for high or low risk:
+```{r}
+par(mfrow=c(2,2))
+plot(heart_data$output, heart_data$chol,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Cholesterol levels")
+
+plot(heart_data$output, heart_data$trtbps,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Resting blood pressure (mm Hg)")
+
+plot(heart_data$output, heart_data$thalachh,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Max Heart Rate")
+
+plot(heart_data$output, heart_data$age,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Age")
+par(mfrow=c(2,2))
+plot(heart_data$output, heart_data$caa,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Number of major vessels")
+plot(heart_data$output, heart_data$fbs,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Fasting Blood Sugar")
+plot(heart_data$output, heart_data$exng,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Exercise indused angine")
+plot(heart_data$output, heart_data$restecg,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Electrographic Results")
+par(mfrow=c(1,2))
+plot(heart_data$output, heart_data$oldpeak,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Old Peak")
+plot(heart_data$output, heart_data$slp,
+     col=ifelse(heart_data$output==1,"red","green"), pch=16,
+     xlab="Heart attack risk; 0 is low, 1 is high", ylab="Slp")
+```
+
+  For **cholesterol levels**, we see that higher levels are correlated with high risk patients.
+
+  For **Resting blood pressure** we see that values 180 and above marked patients as low risk.
+
+  For **Max Heart Rate** we see that while for values in the 100 to 180 range patients were evaluated at both low and high risk, we see that values in the 180 - 200 range primarily marked patients as **high risk**.
+  
+  Looking at **Age**, high risk and low risk patients of ages ranging from 35 to 70, however with a higher number of high risks below or around 35 and above or around 70. This inequality at the extremes is probably due to the higher amount of high risk patients recorded (165 patients), as opposed the 138 low risk patients recorded.
+
+  
+  From the second set of plots, we confirm what we said before that we see no distinction between these variables and heart attack risk.
+  
+  Finally, let's look at the correlation between the variables:
+```{r}
+cor(heart_data)
+```
+  
+  Based on the plots above and the correlation matrix, variables that seem to play a substantial role in determing the risk of heart disease in the patients are **age**, **oldpeak**, **cp**, **trtbps**, **chol**, **thalachh**,**sex**, **thall** and **slp**.
+  
+  **NOTE:** Doubt on using, **thall** because there is no documentation on these two variables adn thus am not sure what they represent, although doing that would make more sense the inference domain but we are in the prediction one.
+  
+#### Some more EDA
+```{r}
+library(tidyverse)
+library(ggthemes)
+
+
+par(mfrow=c(1,3))
+heart_data%>%
+  select(sex, output,oldpeak, chol)%>%
+  mutate(sex2=as.factor(sex))%>%
+  mutate(output2=as.factor(output))%>%
+  ggplot(aes(x=chol))+
+  geom_density(aes(col=output2))+
+  geom_vline(aes(xintercept=mean(chol)), col="blue", lty=2)+
+  labs(col="Heart Attack Risk; 1 = high, 0 = low")
+
+heart_data%>%
+  select(sex, output,oldpeak, chol)%>%
+  mutate(sex2=as.factor(sex))%>%
+  mutate(output2=as.factor(output))%>%
+  ggplot(aes(x=sex2, y=oldpeak))+
+  geom_col(aes(fill=output2), position="dodge")+
+  labs(fill="Heart Attack Risk; 1 = high, 0 = low")
+
+heart_data%>%
+  select(sex, output, oldpeak, chol, age)%>%
+  mutate(sex2=as.factor(sex))%>%
+  mutate(output2=as.factor(output))%>%
+  ggplot(aes(x=age))+
+  geom_density(aes(col=output2))+
+  geom_vline(aes(xintercept=mean(age)), col="blue", lty=2)+
+  labs(col="Heart Attack Risk; 1 = high, 0 = low")
+```
+
+
+  
+##### We have a set of candidates for our predictors, however, before settling down on them we will perform BSS and backward stepwise selection in order to see which variables these methods propose.
+
+We first need to split the data into a train set and a test set:
+```{r}
+#Split data into train and test set
+set.seed(1)
+test.sample<-sample(nrow(heart_data), nrow(heart_data)/3)#take a third of the data for a the test sample and use the rest as a training set
+heart.train<-heart_data[-test.sample,]
+heart.test<-heart_data[test.sample,]
+```
+
+**BSS**:
+```{r}
+library(leaps)
+library(glmnet)
+#We fit BSS on the whole data set, because we evaluate Cp, BIC and Adjusted R^2
+bss.fit<-regsubsets(output~., data=heart_data, nvmax=13)
+sum.bss.fit<-summary(bss.fit)
+sum.bss.fit
+```
+
+Let's observe Cp, BIC and AdjR2
+```{r}
+par(mfrow=c(1,3))
+plot(sum.bss.fit$cp, xlab="Number of Variables", ylab="Cp", type="l")+
+  abline(h=min(sum.bss.fit$cp)+.2*sd(sum.bss.fit$cp), col=2, lty=2)+
+  abline(h=min(sum.bss.fit$cp)-.2*sd(sum.bss.fit$cp), col=2, lty=2)
+plot(sum.bss.fit$bic, xlab="Number of Variables", ylab="BIC", type="l")+
+  abline(h=min(sum.bss.fit$bic)+.2*sd(sum.bss.fit$bic), col=2, lty=2)+
+  abline(h=min(sum.bss.fit$bic)-.2*sd(sum.bss.fit$bic), col=2, lty=2)
+plot(sum.bss.fit$adjr2, xlab="Number of Variables", ylab="Adjr2", type="l", ylim=c(.2, .52))+
+  abline(h=max(sum.bss.fit$adjr2)+.2*sd(sum.bss.fit$adjr2), col=2, lty=2)+
+  abline(h=max(sum.bss.fit$adjr2)-.2*sd(sum.bss.fit$adjr2), col=2, lty=2)
+```
+
+Cp, BIC and Adjr2 all agree on a model of size 7; note that at that size there is a noticeable bend in the curves, also to fact that at 7 variables the curves are within the 0.2 standard deviations from the optimum.
+
+  * Let's see what size model 10-fold CV picks:
+
+Need to create a predict function and then perform 10-fold CV:
+```{r}
+predict.regsubsets<-function(object, newdata, id,...){
+  form<-as.formula(object$call[[2]])
+  mat<-model.matrix(form, newdata)
+  coefs<-coef(object, id=id)
+  xvars<-names(coefs)
+  mat[,xvars]%*%coefs
+}
+
+#10-fold CV:
+k<-10
+set.seed(1)
+folds<-sample(rep(1:k, length=nrow(heart_data)))
+cv.errors<-matrix(NA, k, 13, dimnames = list(NULL, paste(1:13)))
+
+for(i in 1:k){
+  bss.fit<-regsubsets(output~., data=heart_data[folds!=i,], nvmax=13)
+  for(j in 1:13){
+    preds<-predict(bss.fit, heart_data[folds==i,], id=j)
+    cv.errors[i,j]<-mean((heart_data$output[folds==i]-preds)^2)
+  }
+}
+mean.cv.errors<-apply(cv.errors, 2, mean)
+plot(mean.cv.errors, pch=19, type="b")+
+  points(which.min(mean.cv.errors), mean.cv.errors[which.min(mean.cv.errors)],
+         col=2, cex=2)
+```
+
+We see that the 10 variable model achieves the lowest test MSE, although the 7 variable model's test MSE is not too far off and it is a simpler model.
+```{r}
+mean.cv.errors[7]
+mean.cv.errors[10]
+```
+
+**Backward Stepwise Selection:**
+```{r}
+library(leaps)
+bkwd.fit<-regsubsets(output~., data=heart.train, nvmax=13, method="backward")
+sum.bkwd.fit<-summary(bkwd.fit)
+sum.bkwd.fit
+```
+
+We observe Cp, BIC and Adjr2:
+```{r}
+par(mfrow=c(1,3))
+plot(sum.bkwd.fit$cp, xlab="Number of Variables", ylab="Cp", type="l")+
+  abline(h=min(sum.bkwd.fit$cp)+.2*sd(sum.bkwd.fit$cp), col=2, lty=2)+
+  abline(h=min(sum.bkwd.fit$cp)-.2*sd(sum.bkwd.fit$cp), col=2, lty=2)
+plot(sum.bkwd.fit$bic, xlab="Number of Variables", ylab="BIC", type="l")+
+  abline(h=min(sum.bkwd.fit$bic)+.2*sd(sum.bkwd.fit$bic), col=2, lty=2)+
+  abline(h=min(sum.bkwd.fit$bic)-.2*sd(sum.bkwd.fit$bic), col=2, lty=2)
+plot(sum.bkwd.fit$adjr2, xlab="Number of Variables", ylab="Adjr2", type="l", ylim=c(.2, .52))+
+  abline(h=max(sum.bkwd.fit$adjr2)+.2*sd(sum.bkwd.fit$adjr2), col=2, lty=2)+
+  abline(h=max(sum.bkwd.fit$adjr2)-.2*sd(sum.bkwd.fit$adjr2), col=2, lty=2)
+```
+
+Similarly to how BSS behaved, Backward Stepwise Selection agrees on a 7 variable model and perhaps even a 6 variable model.
+
+Let's see what model size 10-fold CV picks:
+```{r}
+#10-fold CV:
+k<-10
+set.seed(1)
+folds<-sample(rep(1:k, length=nrow(heart_data)))
+cv.errors<-matrix(NA, k, 13, dimnames = list(NULL, paste(1:13)))
+
+for(i in 1:k){
+  bkwd.fit<-regsubsets(output~., data=heart_data[folds!=i,], nvmax=13, method="backward")
+  for(j in 1:13){
+    preds<-predict(bkwd.fit, heart_data[folds==i,], id=j)
+    cv.errors[i,j]<-mean((heart_data$output[folds==i]-preds)^2)
+  }
+}
+mean.cv.errors<-apply(cv.errors, 2, mean)
+plot(mean.cv.errors, pch=19, type="b")+
+  points(which.min(mean.cv.errors), mean.cv.errors[which.min(mean.cv.errors)],
+         col=2, cex=2)
+```
+
+Just like BSS, Backward Stepwise Selection picks the 10 variable model as the one with the lowest CV error.
+
+Let's compare the CV errors of the 7 & 10 variable models:
+```{r}
+mean.cv.errors[7]
+mean.cv.errors[10]
+```
+
+Again the errors of both models are almost the same but the 7 variable model is simpler. We proposed the option that a 6 variable model could also be a candidate but looking at the above plot we exclude this proposition.
+
+Let's see the variables picked by the 7 variable BSS model and the 7 variable Backward SS model:
+```{r}
+bss.fit<-bss.fit<-regsubsets(output~., data=heart.train, nvmax=13)
+bkwd.fit<-regsubsets(output~., data=heart.train, nvmax=13, method="backward")
+#The BSS fit
+coef(bss.fit, 7)
+#The Backward SS
+coef(bkwd.fit, 7)
+```
+
+The models picked by BSS and Backward SS are identical and they use **sex**, **cp**, **restecg**, **exng**, **oldpeak**, **caa** and **thall** as variables.
+
+From our earlier analysis on the variables that played an important role included
+**age**, **oldpeak**, **cp**, **trtbps**, **chol**, **thalachh**,**sex**, **thall** and **slp**.
+
+  
+  

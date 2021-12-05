@@ -1,0 +1,432 @@
+---
+title: 'Heart Attack Risk: Model Fitting'
+author: "Carlos Kelaidis"
+date: "4/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read in data set:
+```{r}
+heart_data <- read.csv("~/Documents/My Working Directory/Personal Projects/Heart Attack Prediciton & Analysis/heart.csv")
+#View(heart_data)
+```
+
+### Model Fitting
+
+
+#### Logistic Regression
+
+We use the variables picked by BSS and Backward SS.
+
+We can consider adding some of other ones, that we believe show relevance later on.
+
+**NOTE:** The **output** variable in the data in quantitative, need to convert it to a factor for classification purposes (mainly for SVMs, other fitting procedures are not that affected by this particularity):
+```{r}
+library(tidyverse)
+heart_data<-heart_data%>%
+  mutate(output2=as.factor(output))
+
+is.factor(heart_data$output2)
+#Now get rid of the quantitative output variable
+heart_data<-heart_data[,-14]
+```
+
+
+Now we split the data into a train set and a test set:
+```{r}
+#Split data into train and test set
+set.seed(1)
+test.sample<-sample(nrow(heart_data), nrow(heart_data)/3)#take a third of the data for a the test sample and use the rest as a training set
+heart.train<-heart_data[-test.sample,]
+heart.test<-heart_data[test.sample,]
+```
+
+  * We now fit a logistic regression on the training set using **sex**, **cp**, **restecg**, **exng**, **oldpeak**, **caa** and **thall** as the predictors:
+```{r}
+#Logistic model fit on the taining data to evaluate on test data
+log.fit<-glm(output2~sex+cp+restecg+exng+oldpeak+caa+thall, data=heart.train, family=binomial)
+summary(log.fit)
+```
+
+It looks like all the predictors are statistically significant.
+
+Now we evaluate the model:
+```{r}
+#Probabilities
+log.fit.probs<-predict(log.fit, heart.test,type="response")
+length(log.fit.probs)#101
+```
+
+Let's create a plot and observe how the 0.5 threshold for our posterior probabilities separates the observations:
+```{r}
+plot(log.fit.probs, col=ifelse(heart.test$output==1, "red","green"), pch=20)+
+  abline(h=.5, lwd=3)
+```
+
+The 0.5 threshold seems to separate the observations properly, hence let's use that threshold to evaluate the classification error rate of our logisitc regression:
+```{r}
+log.fit.preds<-rep("0", length(log.fit.probs))
+log.fit.preds[log.fit.probs>0.5]<-"1"
+#The confusion matrix
+table(log.fit.preds, heart.test$output2)
+```
+  
+The classification error rate:
+```{r}
+#Test MSE
+1-mean(log.fit.preds==heart.test$output2)
+```
+
+  Hence, our logisitc model fit above will misslcassify patients as having low or high heart attack risk 16.8% of the time, which is pretty good.
+  
+#### QDA
+
+  * We now fit a QDA model on the training set using **sex**, **cp**, **restecg**, **exng**, **oldpeak**, **caa** and **thall** as the predictors:
+```{r}
+library(MASS)
+qda.fit<-qda(output2~sex+cp+restecg+exng+oldpeak+caa+thall, data=heart.train)
+qda.fit
+```
+  
+```{r}
+#For qda, predict has 3 levels: class, posterior and x. The actual predictions are in the class level.
+qda.preds<-predict(qda.fit, heart.test, type="response")
+plot(qda.preds$class, col=ifelse(heart.test$output2==1, "red","green") ,pch=20)+
+  abline(h=.5, lwd=3)
+```
+  
+  We see an explainable distribution of the probabilities, more in the **high risk** zone as would make sense since our data also contains more **high risk** patients.
+  
+  Let's see the confusion matrix and classification error rate of the QDA fit:
+```{r}
+#Confusion matrix
+table(qda.preds$class, heart.test$output2)
+#Test MSE
+1-mean((qda.preds$class==heart.test$output2))
+```
+  
+  We see that QDA, has a classification error rate of 0.218, which is slightly worse than what Logistic Regression gave us, also suggesting that the relationship between the response and the variables in more linear than non-linear.
+  
+#### SVM
+
+We will fit a **linear** (SVC), **polynomial** and **radial** SVM.
+
+  * We start by fitting the SVC and use 10-fold CV to pick the optimal **cost* value:
+```{r}
+library(e1071)
+set.seed(1)
+svc.tune.out<-tune(svm, output2~sex+cp+restecg+exng+oldpeak+caa+thall,
+                   data=heart.train, kernel="linear",
+                   ranges = list(cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100)))
+summary(svc.tune.out)
+```
+  
+  The lowest CV error (0.1740476) occurs with **cost** equal to 5.
+  
+Hence, we now fit the support vector classifier model according to the best value for cost:
+```{r}
+svc.bestfit<-svc.tune.out$best.model
+summary(svc.bestfit)
+```
+
+The confusion matrix and classification error rate:
+```{r}
+svc.bestfit.preds<-predict(svc.bestfit, heart.test)
+#Confusion matrix
+table(predict=svc.bestfit.preds, truth=heart.test$output2)
+#Test MSE
+1-(28+54)/nrow(heart.test)
+```
+
+Hence, we see that the **linear** SVM (SVC) has a classification error rate of 0.188, which is better than what QDA gaves us but still a little worse than what Logistic Regression did.
+
+
+  * Now we fit a **polynomial** SVM and use 10-fold CV to pick the optimal **degree** as well as the best value for **cost**:
+```{r}
+set.seed(1)
+svm.poly.tune.out<-tune(svm, output2~sex+cp+restecg+exng+oldpeak+caa+thall,
+                        data=heart.train, kernel="polynomial",
+                        ranges = list(degree=seq(2,8),
+                                      cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100)))
+summary(svm.poly.tune.out)
+```
+
+  The lowest CV error (0.1895238) occurs with **cost** equal to 10 and **degree** equal to 5.
+  
+  Below is the polynomial kernel SVM associated with these parameters:
+```{r}
+svm.poly.bestfit<-svm.poly.tune.out$best.model
+summary(svm.poly.bestfit)
+```
+  
+  The confusion matrix:
+```{r}
+svm.poly.bestfit.preds<-predict(svm.poly.bestfit, heart.test)
+#Confusion matrix
+table(predict=svm.poly.bestfit.preds, truth=heart.test$output2)
+```
+  
+  The classification error rate:
+```{r}
+1-(24+53)/nrow(heart.test)
+```
+  
+The polynomial SVM has a classification error rate of 0.238, which is even worse than the one we got using QDA, this is further evidence to the linear relationship between the response and the variables. (The two linear models - Logistic Regression & SVC - perform the best)
+
+  * Finally, we fit a **radial** SVM and use 10-fold CV to pick the optimal tuning parameter $\gamma$ as well as the best value for **cost**:
+```{r}
+set.seed(1)
+svm.radial.tune.out<-tune(svm, output2~sex+cp+restecg+exng+oldpeak+caa+thall,
+                        data=heart.train, kernel="radial",
+                        ranges = list(gamma=c(.01,.1,.5,1,2,3,4),
+                                      cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100)))
+summary(svm.radial.tune.out)
+```
+  
+  The lowest CV error (0.1445238) occurs with **cost** equal to 1 and $\gamma$ equal to 0.1.
+  
+  Below the radial kernel SVM associated with these parameters:
+```{r}
+svm.radial.bestfit<-svm.radial.tune.out$best.model
+summary(svm.radial.bestfit)
+```
+  
+The confusion matrix:
+```{r}
+svm.radial.bestfit.preds<-predict(svm.radial.bestfit, heart.test)
+#Confusion matrix
+table(predict=svm.radial.bestfit.preds, truth=heart.test$output2)
+```
+
+The classification error rate:
+```{r}
+1-(31+53)/nrow(heart.test)
+```
+
+The radial SVM has a classification error rate of 0.168, which is better than the one we got using the linear SVM and acutally identical to the one we got using Logistic regression.
+
+We can observe the ROC plots of each model fit (except QDA), to visualize their performance:
+
+Need to create a ROC plot function first:
+```{r}
+library(ROCR)
+roc_plot<-function(pred, truth, ...){
+  predob=prediction(pred, truth)
+  perf=performance(predob, "tpr", "fpr")
+  plot(perf, ...)
+}
+```
+
+```{r}
+#Logisitic fit on test data
+log.test.fit<-glm(output2~sex+cp+restecg+exng+oldpeak+caa+thall, data=heart.test, family=binomial)
+#SVC with cost = 5.
+svc.fit.opt<-svm(output2~sex+cp+restecg+exng+oldpeak+caa+thall, data=heart.train, kernel="linear", cost=5, decision.values=T)
+#Polynomial SVM with degree = 5 and cost = 10
+svm.poly.fit.opt<-svm(output2~sex+cp+restecg+exng+oldpeak+caa+thall, data=heart.train, kernel="polynomial", degree=5, cost=10, decision.values=T)
+#Radial SVM with gamma = 0.1 and cost = 10
+svm.radial.fit.opt<-svm(output2~sex+cp+restecg+exng+oldpeak+caa+thall, data=heart.train, kernel="radial", gamma=0.1, cost=1, decision.values=T)
+
+#SVC fitted on training
+svc.train.fitted<-attributes(predict(svc.fit.opt, heart.train, decision.values = T))$decision.values
+#SVC fitted on test
+svc.test.fitted<-attributes(predict(svc.fit.opt, heart.test, decision.values = T))$decision.values
+#Polynomial SVM fitted on training
+svm.poly.train.fitted<-attributes(predict(svm.poly.fit.opt, heart.train, decision.values = T))$decision.values
+#Polynomial SVM fitted on test
+svm.poly.test.fitted<-attributes(predict(svm.poly.fit.opt, heart.test, decision.values = T))$decision.values
+#Radial SVM fitted on training
+svm.radial.train.fitted<-attributes(predict(svm.radial.fit.opt, heart.train, decision.values = T))$decision.values
+#Radial SVM fitted on test
+svm.radial.test.fitted<-attributes(predict(svm.radial.fit.opt, heart.test, decision.values = T))$decision.values
+```
+
+The ROC plots:
+```{r}
+par(mfrow=c(2,2))
+roc_plot(log.fit$fitted.values, heart.train$output2, col="blue",main="Logistic Fit ROC curve")
+roc_plot(log.test.fit$fitted.values, heart.test$output2, add=T,col=2)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+roc_plot(svc.train.fitted, heart.train$output2, col="blue",main="SVC ROC curve")
+roc_plot(svc.test.fitted, heart.test$output2, add=T,col=2)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+roc_plot(svm.poly.train.fitted, heart.train$output2, col="blue",main="Polynomial SVM ROC curve")
+roc_plot(svm.poly.test.fitted, heart.test$output2, add=T, col=2)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+roc_plot(svm.radial.train.fitted, heart.train$output2, col="blue",main="Radial SVM ROC curve")
+roc_plot(svm.radial.test.fitted, heart.test$output2, add=T, col=2)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+```
+
+We see how the Logistic fit and Radial SVM outperform both the Linear and Polynomial SVMs on the test data, and how the Polynomial SVM is by far the worst.
+
+All together, the logistic model seems to have the most performing ROC curve on the test data.
+
+Below all the error rates computed thus far:
+```{r}
+rbind(c("Logistic Regression", "QDA", "SVC", "Poly SVM", "Radial SVM"),
+      c(0.168,0.218,0.188,0.238,0.168))
+```
+
+
+#### CLassification Tree
+
+Let's start by fitting a classification Tree to the training data:
+```{r}
+library(tree)
+class.tree<-tree(output2~sex+cp+restecg+exng+oldpeak+caa+thall, data=heart.train)
+summary(class.tree)
+```
+
+Wr see that the tree actually dropped the variable **sex**.
+
+We can plot the tree:
+```{r}
+plot(class.tree)
+  text(class.tree, pretty=0)
+```
+
+Classification error rate:
+```{r}
+class.tree.preds<-predict(class.tree, newdata = heart.test, type="class")
+#Confusion matrix
+table(class.tree.preds, heart.test$output2)
+```
+
+Classification error rate:
+```{r}
+1-(28+49)/nrow(heart.test)
+```
+
+The classification error rate is 0.238 which is the same as the one we got using the polynomial SVM, both are the worse we got, however, the tree is **not pruned**.
+
+  * We use CV to pic the optimal level of pruning:
+```{r}
+set.seed(1)
+cv.class.tree<-cv.tree(class.tree, FUN=prune.misclass)
+cv.class.tree
+```
+  
+  We see that the tree with 6 terminal nodes results in the lowest CV error rate, with 33 CV errors.
+  
+  Below we can visualize this:
+```{r}
+plot(cv.class.tree$size, cv.class.tree$dev, type="b")
+points(cv.class.tree$size[4], cv.class.tree$dev[4], col=2, pch=19)
+```
+  
+  Let's see what the pruned tree looks like:
+```{r}
+pruned.class.tree<-prune.misclass(class.tree, best=6)
+plot(pruned.class.tree)
+text(pruned.class.tree, pretty=0)
+```
+  
+  Let's see what classification error rate the pruned tree has:
+```{r}
+pruned.class.tree.preds<-predict(pruned.class.tree, heart.test, type="class")
+#Confusion matrix
+table(pruned.class.tree.preds, heart.test$output2)
+#Test MSE
+1-(30+50)/nrow(heart.test)
+```
+    
+  So by pruning the tree, we improved the classification error rate to 0.208 and the tree's interpretability. However, this error rate is still worse than three of our earlier methods, with Logistic regression ahead of the curve.
+  
+  Let's see if a random forest performs better, otherwise we stick to the logisitc model and see if we can slightly improve it.
+```{r}
+library(randomForest)
+set.seed(1)
+#mtry = 4 because sqrt(13) = 3.6 (13 predictors)
+rf.class.tree<-randomForest(output2~., data=heart.train, mtry=4, importance = T)
+rf.class.tree
+```
+  
+  The classification error rate of our random forest:
+```{r}
+rf.preds<-predict(rf.class.tree, newdata=heart.test, type="class")
+#Confusion matrix
+table(rf.preds, heart.test$output2)
+#Test MSE
+1-(32+52)/nrow(heart.test)
+```
+  
+  We see that the random forest gives us the same classifiaction error rate as logistic regression and the radial SVM, that of 0.168.
+  
+  In that case, a random forest is preferred to a logistic regression because of interpretability.
+  **NOTE:** We can observe the importance that the random forest gives to each variable:
+```{r}
+importance(rf.class.tree)
+varImpPlot(rf.class.tree)
+```
+  
+  It seems that the most important variable sin determining the risk of heart attack are **caa** and **oldpeak**.
+  
+  * Just out of curiosity, let's fit a bagged tree:
+```{r}
+set.seed(1)
+#mtry = 13 because 13 predictors.
+bag.class.tree<-randomForest(output2~., data=heart.train, mtry=13, importance=T)
+bag.class.tree
+```
+  
+  The classification error rate of our bagged tree:
+```{r}
+bag.preds<-predict(bag.class.tree, newdata=heart.test, type="class")
+#Confusion matrix
+table(bag.preds, heart.test$output2)
+#Test MSE
+1-(32+48)/nrow(heart.test)
+```
+  
+  The bagged tree performs worst than what the random forest did.
+```{r}
+importance(bag.class.tree)
+varImpPlot(bag.class.tree)
+```
+  
+  The bagged tree regards the same variables as the random forest as most important.
+  
+  **NOTE:** The random forest had the smae classification error rate as the logistic regression, but when we fit the random forest, we let the algorithm pick the best predictors from the whole set of predictors instead of using the set of predictors used in fitting all of the earlier models.
+  Hence, we will fit one more random forest using the set of predicotrs used to fit the logistic model (**sex**, **cp**, **restecg**, **exng**, **oldpeak**, **caa** and **thall**).
+  
+  * Random forest fit using **sex**, **cp**, **restecg**, **exng**, **oldpeak**, **caa** and **thall**:
+```{r}
+set.seed(1)
+#mtry = 3 because sqrt(7) = 2.6 (7 predictors)
+rf.class.tree2<-randomForest(output2~sex+cp+restecg+exng+oldpeak+caa+thall,
+                            data=heart.train, mtry=3, importance = T)
+rf.class.tree2
+```
+  
+   The classification error rate for the above random forest:
+```{r}
+rf.preds2<-predict(rf.class.tree2, newdata=heart.test, type="class")
+#Confusion matrix
+table(rf.preds2, heart.test$output2)
+#Test MSE
+1-(28+52)/nrow(heart.test)
+```
+
+The second random forest gave us a classification error rate of 0.208, which is worse than what we got with the first random forest.
+
+### List of final models;
+
+Hence, comparing ROC curves and classification error rates, two models stand out as having the best predictive accuracy and interpretability.
+
+These two are the logistic model and the first random forest fit.
+
+Both of these models have the same classification error rate:
+```{r}
+rbind(c("Logistic Model", "Random Forest"),
+      c(0.168,0.168))
+```
+
