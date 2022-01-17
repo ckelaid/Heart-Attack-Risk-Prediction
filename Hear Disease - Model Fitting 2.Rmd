@@ -1,0 +1,582 @@
+---
+title: 'Heart Disease Classification: Model Fitting'
+author: "Carlos Kelaidis"
+date: "4/12/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read in data set:
+```{r}
+heart_dat <- read.csv("~/Documents/My Working Directory/Personal Projects/Heart Attack Prediciton & Analysis/data/heart.csv")
+#View(heart_dat)
+```
+
+Load some libraries:
+```{r}
+library(tidyverse)
+library(knitr)
+library(ggpubr)
+library(tibble)
+```
+
+We now have a set of candidate variables.
+
+Those picked through observations:
+  + **ExerciseAngina**
+  + **Oldpeak**
+  + **MaxHR**
+  + **Age**
+  + **Cholesterol**
+  + **ChestPainType**
+  
+Then using the Best Susbet Selection method, we picked a 12 variable model including the following variables.
+
+Important to note, that through the model fitting procedure, some factor variables with more than 2 levels, namely **ChestPainType**, are counted as more than one variable to account for the extra levels. Hence, the 12 variable model is actually a 9 variable model (without intercept), namely:
+  + **Age**
+  + **Sex**
+  + **ChestPainType**
+  + **Cholesterol**
+  + **FastingBS**
+  + **MaxHR**
+  + **ExerciseAngina**
+  + **Oldpeak**
+  + **ST_Slope**
+  
+The 7 variable model included, so actually a 6 variable model (without intercept):
+  + **Sex**
+  + **ChestPainType**
+  + **Cholesterol**
+  + **FastingBS**
+  + **ExerciseAngina**
+  + **ST_Slope**
+  
+We will use the 10 (with intercept) variables picked by the BSS as they also include our previously noted variables, this is using all the variables available basically.
+
+If we notice that some variables are insignificant going forward we can drop them.
+
+# Model Fitting and Selection
+
+- Logistic regression
+- LDA
+- KNN
+- Lasso
+- SVM
+- Classification Tree/Random forest
+
+### Logistic Regression
+
+We begin by splitting the data into a train set and a test set:
+```{r}
+#Split data into train and test set
+set.seed(1)
+test.sample<-sample(nrow(heart_dat), nrow(heart_dat)/3)#take a third of the data for a the test sample and use the rest as a training set
+heart.train<-heart_dat[-test.sample,]
+heart.test<-heart_dat[test.sample,]
+```
+
+We fit a logistic regression model on all the variables:
+```{r}
+#Fit on training set
+log.fit.full<-glm(HeartDisease~., data=heart.train, family=binomial)
+summary(log.fit.full)
+```
+
+From the above summary it appears that a few variables are insignificant:
+  + **Age** (don't know why since it clearly affected disease status based on the previous observations)
+  + **RestingBP**
+  + **RestingECG**
+  + **MaxHR**
+  + **Oldpeak**
+  
+Let's drop the above variables and refit:
+```{r}
+log.fit.reduced<-glm(HeartDisease~Sex+ChestPainType+Cholesterol+
+                       FastingBS+ExerciseAngina+
+                       ST_Slope, data=heart.train, family=binomial)
+
+summary(log.fit.reduced)
+```
+
+Variables are all significant, we are hence decided on using the following variables - **Sex, ChestPainType, Cholesterol, FastingBS, ExerciseAngina, ST_Slope**.
+
+Let's fit a BSS model using the above variables and use CV to see what size model gets picked:
+```{r}
+predict.regsubsets<-function(object, newdata, id,...){
+  form<-as.formula(object$call[[2]])
+  mat<-model.matrix(form, newdata)
+  coefs<-coef(object, id=id)
+  xvars<-names(coefs)
+  mat[,xvars]%*%coefs
+}
+```
+
+```{r}
+library(leaps)
+#10-fold CV:
+bss.fit2<-regsubsets(HeartDisease~Sex+ChestPainType+Cholesterol+
+                       FastingBS+ExerciseAngina+
+                       ST_Slope, data=heart_dat, nvmax=15)
+k<-10
+set.seed(1)
+folds<-sample(rep(1:k, length=nrow(heart_dat)))
+cv.errors<-matrix(NA, k, 9, dimnames = list(NULL, paste(1:9)))
+
+for(i in 1:k){
+  bss.fit<-regsubsets(HeartDisease~Sex+ChestPainType+Cholesterol+
+                       FastingBS+ExerciseAngina+
+                       ST_Slope, data=heart_dat[folds!=i,], nvmax=15)
+  for(j in 1:9){
+    preds<-predict.regsubsets(bss.fit, heart_dat[folds==i,], id=j)
+    cv.errors[i,j]<-mean((heart_dat$HeartDisease[folds==i]-preds)^2)
+  }
+}
+mean.cv.errors<-apply(cv.errors, 2, mean)
+plot(mean.cv.errors, pch=19, type="b")+
+  points(which.min(mean.cv.errors), mean.cv.errors[which.min(mean.cv.errors)],
+         col=2, cex=2)
+```
+
+As expected, the best performing model is the one using all the variables, let's compare the one of size 7 though:
+```{r}
+mean.cv.errors[9]
+mean.cv.errors[7]
+```
+
+So the CV error rate is about the same between the 9 variable model and the 7 variable one. 
+```{r}
+coef(bss.fit2, 9)
+coef(bss.fit2, 7)
+```
+
+These models use the same variables, the only difference is that the 9 variable model uses more dummies than the 7 variable one. So nothing new to see with regards to variables and we stick with the variables picked for our reduced logistic fit.
+
+##### Lasso
+One final attempt for the variables. We fit a Lasso model and let it perform variable selection for us. Let's see how it does:
+```{r}
+library(glmnet)
+#matrix of predictors
+X<-model.matrix(HeartDisease~., data=heart_dat)
+#response vector
+Y<-heart_dat$HeartDisease
+
+#Use CV to pick tuning parameter
+set.seed(1)
+cv.heart_dat<-cv.glmnet(X,Y, alpha=1)
+plot(cv.heart_dat)
+print(cv.heart_dat)
+```
+
+So we see a Lasso model performs no variable selection, it keeps all variables, we can/will further examine the lasso model, but was mainly curious to see whether it would perform variable selection, and if yes on which variables. However, no variable selection was done.
+
+Logistic regression does not make the same normality assumptions as linear regression, so no need to check for heteroscedasticity or normality. We do however check for mulitcollinearity:
+
+Let's test for potential **multicollinearity** in our variables:
+```{r}
+library(car)
+vif(log.fit.reduced)
+```
+
+All the VIFs < 2.5 (For logistic regression), indicating no issues regarding multicollinearity.
+
+#### Evaluating the accuracy of the fit
+
+We can now evaluate the accuracy of logistic regression fit using the test MSE:
+```{r}
+#Probabilities
+log.fit.reduced.probs<-predict(log.fit.reduced, heart.test,type="response")
+length(log.fit.reduced.probs)#306
+```
+
+Let's create a plot and observe how the 0.5 threshold for our posterior probabilities separates the observations:
+```{r}
+plot(log.fit.reduced.probs, col=ifelse(heart.test$HeartDisease==1,
+                                       "red","green"), pch=20)+
+  abline(h=.5, lwd=3)
+```
+
+The observations are separated quite nicely, the 0.5 threshhold seems to be appropriate.
+```{r}
+log.fit.reduced.preds<-rep("0", length(log.fit.reduced.probs))
+log.fit.reduced.preds[log.fit.reduced.probs>0.5]<-"1"
+#The confusion matrix
+table(log.fit.reduced.preds, heart.test$HeartDisease)
+```
+  
+The classification error rate:
+```{r}
+#Test MSE
+log.fit.reduced.MSE<-1-mean(log.fit.reduced.preds==heart.test$HeartDisease)
+log.fit.reduced.MSE
+
+#Storing the test MSE
+testMSEs<-rbind(c("Logistic Regression"),
+                c(round(log.fit.reduced.MSE,3)))
+```
+
+Hence, our logistic model fit above will misslcassify patients as having heart disease 14.4% of the time, which is pretty good.
+
+Since Logistic Regression is a more linear approach, let's try one that's a bit less parametric, namely **KNN**.
+
+The predictors used in the logistic regression are Sex, ChestPainType, Cholesterol, FastingBS, ExerciseAngina and ST_Slope.
+
+### KNN with K = 5
+```{r}
+#Cannot run knn with categorical predictors, so need to convert 
+#all the predictors to numerical data
+#Need to convert Sex, ChestPainType, ExerciseAngina and ST_Slope
+#View(heart.train)
+
+#Converting Sex
+train.num_Sex<-factor(NA, levels=c("1","0"))
+train.num_Sex[heart.train$Sex=="M"]<-"1"
+train.num_Sex[heart.train$Sex=="F"]<-"0"
+train.num_Sex<-as.numeric(as.character(train.num_Sex))#0 is female, 1 is male
+
+#Converting ChestPainType
+summary(heart.train$ChestPainType)
+train.num_ChestPainType<-factor(NA, levels=c("1","2","3","4"))
+train.num_ChestPainType[heart.train$ChestPainType=="ASY"]<-"1"
+train.num_ChestPainType[heart.train$ChestPainType=="ATA"]<-"2"
+train.num_ChestPainType[heart.train$ChestPainType=="NAP"]<-"3"
+train.num_ChestPainType[heart.train$ChestPainType=="TA"]<-"4"
+train.num_ChestPainType<-as.numeric(as.character(train.num_ChestPainType))
+
+#Converting ExerciseAngina
+summary(heart.train$ExerciseAngina)
+train.num_ExerciseAngina<-factor(NA, levels=c("1","0"))
+train.num_ExerciseAngina[heart.train$ExerciseAngina=="Y"]<-"1"
+train.num_ExerciseAngina[heart.train$ExerciseAngina=="N"]<-"0"
+train.num_ExerciseAngina<-as.numeric(as.character(train.num_ExerciseAngina))
+
+#Converting ST_Slope
+summary(heart.train$ST_Slope)
+train.num_STslope<-factor(NA, levels=c("1","0","2"))
+train.num_STslope[heart.train$ST_Slope=="Down"]<-"1"
+train.num_STslope[heart.train$ST_Slope=="Flat"]<-"0"
+train.num_STslope[heart.train$ST_Slope=="Up"]<-"2"
+train.num_STslope<-as.numeric(as.character(train.num_STslope))
+
+#Now let's add these numeric variables to a matrix
+#cbind(train.num_Sex,train.num_ChestPainType,train.num_ExerciseAngina,train.num_STslope, heart.train[,c(5,6)])
+
+#Need to do the same for test set
+#Converting Sex
+test.num_Sex<-factor(NA, levels=c("1","0"))
+test.num_Sex[heart.test$Sex=="M"]<-"1"
+test.num_Sex[heart.test$Sex=="F"]<-"0"
+test.num_Sex<-as.numeric(as.character(test.num_Sex))#0 is female, 1 is male
+
+#Converting ChestPainType
+test.num_ChestPainType<-factor(NA, levels=c("1","2","3","4"))
+test.num_ChestPainType[heart.test$ChestPainType=="ASY"]<-"1"
+test.num_ChestPainType[heart.test$ChestPainType=="ATA"]<-"2"
+test.num_ChestPainType[heart.test$ChestPainType=="NAP"]<-"3"
+test.num_ChestPainType[heart.test$ChestPainType=="TA"]<-"4"
+test.num_ChestPainType<-as.numeric(as.character(test.num_ChestPainType))
+
+#Converting ExerciseAngina
+test.num_ExerciseAngina<-factor(NA, levels=c("1","0"))
+test.num_ExerciseAngina[heart.test$ExerciseAngina=="Y"]<-"1"
+test.num_ExerciseAngina[heart.test$ExerciseAngina=="N"]<-"0"
+test.num_ExerciseAngina<-as.numeric(as.character(test.num_ExerciseAngina))
+
+#Converting ST_Slope
+test.num_STslope<-factor(NA, levels=c("1","0","2"))
+test.num_STslope[heart.test$ST_Slope=="Down"]<-"1"
+test.num_STslope[heart.test$ST_Slope=="Flat"]<-"0"
+test.num_STslope[heart.test$ST_Slope=="Up"]<-"2"
+test.num_STslope<-as.numeric(as.character(test.num_STslope))
+
+#cbind(test.num_Sex,test.num_ChestPainType,test.num_ExerciseAngina,test.num_STslope, heart.test[,c(5,6)])
+
+#Before we run KNN need to set a few variables
+train.X<-cbind(train.num_Sex,train.num_ChestPainType,train.num_ExerciseAngina,
+               train.num_STslope, heart.train[,c(5,6)])
+test.X<-cbind(test.num_Sex,test.num_ChestPainType,test.num_ExerciseAngina,
+              test.num_STslope, heart.test[,c(5,6)])
+train.Y<-heart.train$HeartDisease
+```
+
+Now that we have converted everything to numeric variables, we can perform KNN:
+```{r}
+library(class)
+set.seed(1)
+knn.pred<-knn(train.X, test.X, train.Y, k=5)
+table(knn.pred, heart.test$HeartDisease)
+```
+
+
+```{r}
+#The test MSE
+knn.testMSE<-1-mean(knn.pred==heart.test$HeartDisease)
+knn.testMSE
+
+testMSEs<-rbind(c("Logistic Regression", "KNN"),
+                c(round(log.fit.reduced.MSE,3), round(knn.testMSE,3)))
+```
+
+Hence, our KNN (with K = 5) fit will misslcassify patients as having heart disease 21.9% of the time. It is hence outperformed by the logistic regression model.
+
+We have now fit a KNN & a logistic regression, since the logistic regression outperformed the KNN model, the decision-boundary could be twoards the more linear side. Hence, next we fit a linear SVM and perhaps also a kernel SVM.
+Also, LDA sometimes outperforms logistic regression, so we fit a LDA model as well.
+
+### LDA
+```{r}
+library(MASS)
+lda.fit<-lda(HeartDisease~Sex+ChestPainType+Cholesterol+
+                       FastingBS+ExerciseAngina+
+                       ST_Slope, data=heart.train)
+lda.fit
+```
+
+```{r}
+#Confusion matrix
+lda.preds<-predict(lda.fit, heart.test, type="response")
+plot(lda.preds$class, col=ifelse(heart.test$HeartDisease==1, "green","red"))
+```
+
+We can see, LDA classifies observation fairly evenly, there should not be a too high amount of false positives nor false negatives. LDA model should be fairly accurate.
+
+```{r}
+table(lda.preds$class, heart.test$HeartDisease)
+#Test MSE
+lda_testMSE<-1-mean(lda.preds$class==heart.test$HeartDisease)
+lda_testMSE
+
+testMSEs<-rbind(c("Logistic Regression", "KNN", "LDA"),
+                c(round(log.fit.reduced.MSE,3), round(knn.testMSE,3),
+                  round(lda_testMSE, 3)))
+```
+
+Hence, our LDA fit will misslcassify patients as having heart disease 13.7% of the time, outperforming both KNN and Logistic Regression.
+
+### SVMs
+Let's begin by fitting a linear SVM (SVC) and use CV to pick the tuning parameters:
+```{r}
+#For SVMs need a factor as my response
+library(e1071)
+set.seed(1)
+svc.tune.out<-tune(svm, as.factor(HeartDisease)~Sex+ChestPainType+Cholesterol+
+                       FastingBS+ExerciseAngina+
+                       ST_Slope,
+                   data=heart.train, kernel="linear",
+                   ranges = list(cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100)))
+summary(svc.tune.out)
+```
+
+The lowest CV error (0.1404283) occurs with **cost** equal to 1.
+```{r}
+svc.bestfit<-svc.tune.out$best.model
+summary(svc.bestfit)
+```
+
+The confusion matrix and classification error rate:
+```{r}
+svc.bestfit.preds<-predict(svc.bestfit, heart.test)
+#Confusion matrix
+table(predict=svc.bestfit.preds, truth=heart.test$HeartDisease)
+#Test MSE
+svc_testMSE<-1-(110+150)/nrow(heart.test)
+svc_testMSE
+
+testMSEs<-rbind(c("Logistic Regression", "KNN", "LDA", "SVC"),
+                c(round(log.fit.reduced.MSE,3), round(knn.testMSE,3),
+                  round(lda_testMSE, 3), round(svc_testMSE, 3)))
+```
+
+Hence, our SVC will misslcassify patients as having heart disease 15.0% of the time, outperforming both KNN but not Logistic Regression and LDA.
+
+Let's observe our models through some **ROC** plots:
+Need to create a ROC plot function first:
+```{r}
+library(ROCR)
+roc_plot<-function(pred, truth, ...){
+  predob=prediction(pred, truth)
+  perf=performance(predob, "tpr", "fpr")
+  plot(perf, ...)
+}
+```
+
+Some variable manipualtions:
+```{r}
+#Logisitic fit on test data
+log.test.fit<-glm(HeartDisease~Sex+ChestPainType+Cholesterol+
+                    FastingBS+ExerciseAngina+ST_Slope, 
+                  data=heart.test, family=binomial)
+#SVC with cost = 1 
+svc.fit.opt<-svm(HeartDisease~Sex+ChestPainType+Cholesterol+
+                    FastingBS+ExerciseAngina+ST_Slope, 
+                 data=heart_dat, kernel="linear", cost=1, decision.values=T)
+#SVC fitted on training
+svc.train.fitted<-attributes(predict(svc.fit.opt, heart.train, decision.values = T))$decision.values
+#SVC fitted on test
+svc.test.fitted<-attributes(predict(svc.fit.opt, heart.test, decision.values = T))$decision.values
+
+#LDA on train
+lda.train.preds<-predict(lda.fit, heart.train, type="response")
+lda.train.pr<-prediction(lda.train.preds$posterior[,2],
+                         heart.train$HeartDisease)
+lda.train.perf<-performance(lda.train.pr, "tpr", "fpr")
+#LDA on test
+lda.test.pr<-prediction(lda.preds$posterior[,2], heart.test$HeartDisease)
+lda.test.perf<-performance(lda.test.pr, "tpr", "fpr")
+```
+
+Now the ROC plots:
+```{r}
+par(mfrow=c(1,3))
+roc_plot(log.fit.reduced$fitted.values, heart.train$HeartDisease, col="blue",main="Logistic Fit ROC curve")
+roc_plot(log.test.fit$fitted.values, heart.test$HeartDisease, add=T,col=2)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+roc_plot(svc.train.fitted, heart.train$HeartDisease, col="blue",main="SVC ROC curve")
+roc_plot(svc.test.fitted, heart.test$HeartDisease, add=T,col=2)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+#LDA
+plot(lda.test.perf, col="red",main="LDA ROC curve")
+plot(lda.train.perf, col="blue", add=T)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+```
+
+We can see all three methods perform pretty accurately on the test data.
+
+Lastly, let's fit a tree-based method.
+
+### Random forest
+
+We fit a random forest on all the predictors:
+```{r}
+library(randomForest)
+set.seed(1)
+#mtry = 3 because sqrt(11) = 3.3 (11 predictors)
+rf.class.tree<-randomForest(as.factor(HeartDisease)~., data=heart.train,
+                            mtry=3,
+                            importance = T)
+rf.class.tree
+```
+
+The classification error rate of our random forest:
+```{r}
+rf.preds<-predict(rf.class.tree, newdata=heart.test, type="class")
+#Confusion matrix
+table(rf.preds, as.factor(heart.test$HeartDisease))
+#Test MSE
+rf_testMSE<-1-(112+157)/nrow(heart.test)
+rf_testMSE
+
+testMSEs<-rbind(c("Logistic Regression", "KNN", "LDA", "SVC",
+                  "Random Forest"),
+                c(round(log.fit.reduced.MSE,3), round(knn.testMSE,3),
+                  round(lda_testMSE, 3), round(svc_testMSE, 3),
+                  round(rf_testMSE, 3)))
+```
+
+Hence, our Random Forest will misslcassify patients as having heart disease 12.1% of the time, outperforming all other models.
+
+Here are all our models' test MSEs:
+```{r}
+testMSEs
+```
+
+They are all pretty close, by our top three is the **Random Forest**, followed by **LDA**, followed by **Logistic Regression**.
+
+Important to note, is that the Random Forest uses all the predictors, let's fit a random forest with the predicotrs that appeared significant for the logistic regression model & LDA, see if this new random forest has an increased accuracy:
+```{r}
+set.seed(1)
+#mtry = 3 because sqrt(11) = 3.3 (11 predictors)
+rf.class.tree2<-randomForest(as.factor(HeartDisease)~Sex+ChestPainType+
+                               Cholesterol+FastingBS + ExerciseAngina+
+                               ST_Slope,
+                             data=heart.train,
+                            mtry=3,
+                            importance = T)
+rf.preds2<-predict(rf.class.tree2, newdata=heart.test, type="class")
+#Confusion matrix
+table(rf.preds2, as.factor(heart.test$HeartDisease))
+#Test MSE
+1-(110+153)/nrow(heart.test)
+```
+
+No, so the test MSE of the random forest fit with just the variables present in the logistic regression model and LDA, is of 0.141. Which is actually worse than LDA, but still, although even barely, better than logistic regression.
+
+Let's take a closer look at our optimal random forest (the 1st one fit):
+```{r}
+importance(rf.class.tree)
+varImpPlot(rf.class.tree)
+```
+
+Based on the random forest, it seems the most important variables in classifying patients as having heart disease or not are **ST_Slope** and **ChestPainType**.
+
+Let's take another look at our top 3 models:
+```{r}
+log.fit.reduced
+lda.fit
+rf.class.tree
+```
+
+Our final **preferred** model is the random forest, as it is the most accurate fit, and also the most interpretable (sorta, need to understand more myself).
+```{r}
+rf.class.tree
+plot(rf.class.tree)
+```
+
+We see as the number of trees increase, the error rate stabilizes. Our Random Forest chose 500 trees.
+
+ROC for random forest:
+```{r}
+#RF on train
+rf.train.pr<-predict(rf.class.tree, heart.train, type = "prob")[,2]
+rf.train.prediction<-prediction(rf.train.pr, heart.train$HeartDisease)
+rf.train.perf<-performance(rf.train.prediction, "tpr", "fpr")
+#RF on test
+rf.test.pr<-predict(rf.class.tree, heart.test, type = "prob")[,2]
+rf.test.prediction<-prediction(rf.test.pr, heart.test$HeartDisease)
+rf.test.perf<-performance(rf.test.prediction, "tpr", "fpr")
+
+#The plot
+plot(rf.test.perf, col="red")
+plot(rf.train.perf, add=T, col="blue")
+```
+
+So we can see the 100% accuracy the random forest achieves on the training data, but also the high accuracy it achieves on the test data, which is what interests us.
+
+```{r}
+par(mfrow=c(2,2))
+#Log fit
+roc_plot(log.fit.reduced$fitted.values, heart.train$HeartDisease, col="blue",main="Logistic Fit ROC curve")
+roc_plot(log.test.fit$fitted.values, heart.test$HeartDisease, add=T,col=2)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+#SVC
+roc_plot(svc.train.fitted, heart.train$HeartDisease, col="blue",main="SVC ROC curve")
+roc_plot(svc.test.fitted, heart.test$HeartDisease, add=T,col=2)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+#LDA
+plot(lda.test.perf, col="red",main="LDA ROC curve")
+plot(lda.train.perf, col="blue", add=T)
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+#RF
+plot(rf.test.perf, col="red",main="RF ROC curve")
+plot(rf.train.perf, add=T, col="blue")
+legend("bottomright", legend=c("Training data", "Test data"),
+       col=c("blue",2), lty=1, lwd=2, cex=.8)
+```
+
+So in comparison, we see the all four methods have similar accuracy on the test data, looking at it in more detail we saw the Random Forest performed the best, followed by LDA, then Logistic Regression and then SVC. KNN was not in its ballpark in this study.
+```{r}
+testMSEs
+```
+
+Perhaps if we had more observations, KNN could perform better due to is non-parametric nature, however it is not the case.
+
+
+#### Do a few predictions perhaps? also add the ROC curves!!!
+
