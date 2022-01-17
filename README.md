@@ -32,9 +32,7 @@ It is composed of 918 observations and 12 variables including the response:
 
 ![Image](output_sex_based.png)
 
-![Image](resting_vs_chestPainType.png) ![Image](resting_vs_chestPainType2.png)
-
-![Image](resting_vs_age.png) 
+![Image](resting_vs_chestPainType2.png) 
 
 ![Image](output_age_based.png) ![Image](age_vs_chestPainType_Sex.png) 
 
@@ -47,29 +45,33 @@ After exploring the variables and their relationship, we ran a Best Subset Selec
 
 ![Image](BSS_cp_bic_ajr2.png)
 
+We see based on the above metrics (Cp, BIC, Adjusted-R2), a model of size 7 seems sufficient, but we also tested using Cross-Validation (CV) to see what size model was preferred.
+
 ![Image](BSS_modeSize_CVerror.png)
 
-BSS suggested a model of size 11 with the following variables:
+Using CV, BSS suggested a model of size 11 with the following variables:
 ![Image](BSS_11_var_model.png)
 
-
+Whether the 7 variable model or 11 variable model is preferred depends on if our end goal is interpretability or just prediction, and also how much the accuracy is increased depending on the variable count to determine what is worth.
 
 ### Model Selection
 
 #### Proposed Models
 - Logistic regression
 - LDA
-- KNN
+- KNN with K = 5
 - Lasso
 - SVM or SVC depending on linear nature of decision-boundary
 - Classification Tree/Random forest
 
 We fit the above models on 2/3 of the training data and used the other 1/3 for testing purposes.
 
+Some more variable selection was done in this part, as some of the above methods perform variable selection (Logistic Regression and Lasso particularly).
+
 ROC curves of the best performing models:
 ![Image](ROC.png)
 
-We use the Classification Error Rate as an evaluation metric:
+We used the Classification Error Rate as an evaluation metric:
 ![Image](test_MSE.png)
 
 As per the above, the best performing model was the random forest, which is great because it also offers substantial interpretability. 
