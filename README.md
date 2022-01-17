@@ -3,10 +3,14 @@
 ### Quick overview:
 This project is done fully in R. Its goal is to fit a model to most accurately predict whether a patient will have or is at risk of having a **cardiovascular disease** based on variables like **cholesterol levels**, **sex**, **age**, **resting blood pressure**, etc.
 
+[EDA & Variable Analysis](https://github.com/ckelaid/Heart-Disease-Prediction/blob/main/Heart-Disease---Analysis-2.pdf)
+
+[Model Selection & Fitting](https://github.com/ckelaid/Heart-Disease-Prediction/blob/main/Hear-Disease---Model-Fitting-2.pdf)
+
 ### About the data:
 The data is from a [Kaggle dataset](https://www.kaggle.com/fedesoriano/heart-failure-prediction?select=heart.csv).
 
-The variables are:
+It is composed of 918 observations and 11 variables:
 - Age: age of the patient [years]
 - Sex: sex of the patient [M: Male, F: Female]
 - ChestPainType: chest pain type [TA: Typical Angina, ATA: Atypical Angina, NAP: Non-Anginal Pain, ASY: Asymptomatic]
@@ -20,3 +24,12 @@ The variables are:
 - ST_Slope: the slope of the peak exercise ST segment [Up: upsloping, Flat: flat, Down: downsloping]
 - HeartDisease: output class [1: heart disease, 0: Normal]
 
+## Project
+
+### EDA
+
+
+
+
+
+### Model Selection
