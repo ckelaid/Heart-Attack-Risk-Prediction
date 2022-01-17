@@ -43,11 +43,13 @@ It is composed of 918 observations and 12 variables including the response:
 
 #### Best Subset Selection Metrics
 
+After exploring the variables and their relationship, we ran a Best Subset Selection method to see what what variables were noted as significant based on BSS.
+
 ![Image](BSS_cp_bic_ajr2.png)
 
 ![Image](BSS_modeSize_CVerror.png)
 
-BSS suggests a model of size 11 with the following variables:
+BSS suggested a model of size 11 with the following variables:
 ![Image](BSS_11_var_model.png)
 
 
